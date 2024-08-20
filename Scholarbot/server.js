@@ -2,7 +2,9 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const dotenv = require("dotenv");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const xlsx = require("xlsx");
+const path = require("path");
+const fs = require("fs");
+const csv = require("csv-parser");
 
 dotenv.config();
 
@@ -12,21 +14,29 @@ const genAI = new GoogleGenerativeAI(apiKey);
 const app = express();
 const port = 3000;
 
-// Load the Excel file
-const workbook = xlsx.readFile("scholarships.xlsx");
-const sheetName = workbook.SheetNames[0];
-const sheet = workbook.Sheets[sheetName];
+// Array to hold the custom data
+let scholarships = [];
 
-// Convert the Excel data to JSON
-const scholarships = xlsx.utils.sheet_to_json(sheet);
-
-// Get generative model
-const model = genAI.getGenerativeModel({
-  model: "gemini-1.0-pro",
-});
+// Load CSV data into scholarships array
+fs.createReadStream(path.join(__dirname, "scholarships.csv"))
+  .pipe(csv())
+  .on("data", (data) => scholarships.push(data))
+  .on("end", () => {
+    console.log("CSV data loaded:", scholarships);
+  });
 
 app.use(bodyParser.json());
-app.use(express.static("public")); // Serve static files from 'public' directory
+
+// Middleware
+app.use(bodyParser.json());
+app.use("/styles", express.static(path.join(__dirname, "styles")));
+app.use("/scripts", express.static(path.join(__dirname, "scripts")));
+app.use(express.static(path.join(__dirname)));
+
+// Serve the index.html file
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
 
 // API endpoint for handling chat messages
 app.post("/api/message", async (req, res) => {
@@ -60,27 +70,19 @@ app.post("/api/message", async (req, res) => {
         responseMimeType: "text/plain",
       };
 
-      const chatSession = model.startChat({
-        generationConfig,
-        history: [
-          {
-            role: "user",
-            parts: [{ text: "How hard is it to get a scholarship?" }],
-          },
-          {
-            role: "model",
-            parts: [
-              {
-                text: "The difficulty of getting a scholarship depends on several factors...",
-              },
-            ],
-          },
-        ],
-      });
-
       try {
-        const result = await chatSession.sendMessage(message);
-        responseText = result.response.text();
+        const result = await genAI.getGenerativeModel({
+          model: "gemini-1.0-pro",
+          prompt: message,
+          generationConfig,
+        });
+
+        // Ensure the response is well-structured and contains the expected output
+        if (result && result.candidates && result.candidates.length > 0) {
+          responseText = result.candidates[0].content || "Sorry, I couldn't find an answer.";
+        } else {
+          responseText = "Sorry, no response was generated.";
+        }
       } catch (chatError) {
         console.error("Error generating response from AI:", chatError);
         responseText = "Sorry, there was an error generating the response.";

@@ -11,7 +11,7 @@ document.getElementById('send-button').addEventListener('click', async () => {
 
     try {
         // Send user's message to the backend API
-        const response = await fetch('/api/message', {
+        const response = await fetch('http://localhost:3000/api/message', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
